@@ -15,6 +15,7 @@ export class AuthService {
   }
 
   async register(dto: RegisterDto) {
+    // 1. Create Supabase auth user
     const { data, error } = await this.supabase.auth.admin.createUser({
       email: dto.email,
       password: dto.password,
@@ -28,10 +29,50 @@ export class AuthService {
       throw new Error(error.message);
     }
 
+    const userId = data.user.id;
+
+    // 2. Create organization
+    const slug = dto.organizationName
+      .toLowerCase()
+      .replace(/\s+/g, '-')
+      .replace(/[^a-z0-9-]/g, '');
+
+    const { error: orgError } = await this.supabase
+      .from('organizations')
+      .insert({
+        name: dto.organizationName,
+        slug: `${slug}-${Date.now()}`,
+      })
+      .select()
+      .single();
+
+    if (orgError) throw new Error(orgError.message);
+
+    // 3. Get the created org
+    const { data: org } = await this.supabase
+      .from('organizations')
+      .select('id')
+      .eq('name', dto.organizationName)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    // 4. Create user record
+    await this.supabase
+      .from('users')
+      .insert({
+        supabase_auth_id: userId,
+        organization_id: org.id,
+        email: dto.email,
+        full_name: dto.fullName,
+        role: 'admin',
+      });
+
     return {
       message: 'Registration successful',
-      userId: data.user.id,
+      userId,
       email: data.user.email,
+      organizationId: org.id,
     };
   }
 
